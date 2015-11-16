@@ -5,8 +5,6 @@ moment = require 'moment'
 async = require 'async'
 nockUtils = require '../nock-utils'
 
-# TODO: Re-enable prepaid tests
-
 describe '/db/prepaid', ->
   prepaidURL = getURL('/db/prepaid')
   prepaidCreateURL = getURL('/db/prepaid/-/create')
@@ -459,34 +457,38 @@ describe '/db/prepaid', ->
           done()
 
   # TODO: Move redeem subscription prepaid code tests to subscription tests file
-  xdescribe 'Subscription redeem tests', ->
+  describe 'Subscription redeem tests', ->
+    afterEach nockUtils.teardownNock
+    
     it 'Creator can redeeem a prepaid code', (done) ->
-      loginJoe (joe) ->
-        expect(joeCode).not.toBeNull()
-        expect(joeData.stripe?.customerID).toBeDefined()
-        expect(joeData.stripe?.subscriptionID).toBeDefined()
-        return done() unless joeData.stripe?.customerID
-
-        # joe has a stripe subscription, so test if the months are added to the end of it.
-        stripe.customers.retrieve joeData.stripe.customerID, (err, customer) =>
-          expect(err).toBeNull()
-
-          findStripeSubscription customer.id, subscriptionID: joeData.stripe?.subscriptionID, (subscription) =>
-            if subscription
-              stripeSubscriptionPeriodEndDate = new moment(subscription.current_period_end * 1000)
-            else
-              expect(stripeSubscriptionPeriodEndDate).toBeDefined()
-              return done()
-
-            subscribeWithPrepaid joeCode, (err, res, result) =>
-              expect(err).toBeNull()
-              expect(res.statusCode).toEqual(200)
-              endDate = stripeSubscriptionPeriodEndDate.add(3, 'months').toISOString().substring(0, 10)
-              expect(result?.stripe?.free).toEqual(endDate)
-              expect(result?.purchased?.gems).toEqual(14000)
-              findStripeSubscription customer.id, subscriptionID: joeData.stripe?.subscriptionID, (subscription) =>
-                expect(subscription).toBeNull()
-                done()
+      nockUtils.setupNock 'db-sub-redeem-test-1.json', (err, nockDone) ->
+        loginJoe (joe) ->
+          expect(joeCode).not.toBeNull()
+          expect(joeData.stripe?.customerID).toBeDefined()
+          expect(joeData.stripe?.subscriptionID).toBeDefined()
+          return done() unless joeData.stripe?.customerID
+  
+          # joe has a stripe subscription, so test if the months are added to the end of it.
+          stripe.customers.retrieve joeData.stripe.customerID, (err, customer) =>
+            expect(err).toBeNull()
+  
+            findStripeSubscription customer.id, subscriptionID: joeData.stripe?.subscriptionID, (subscription) =>
+              if subscription
+                stripeSubscriptionPeriodEndDate = new moment(subscription.current_period_end * 1000)
+              else
+                expect(stripeSubscriptionPeriodEndDate).toBeDefined()
+                return done()
+  
+              subscribeWithPrepaid joeCode, (err, res, result) =>
+                expect(err).toBeNull()
+                expect(res.statusCode).toEqual(200)
+                endDate = stripeSubscriptionPeriodEndDate.add(3, 'months').toISOString().substring(0, 10)
+                expect(result?.stripe?.free).toEqual(endDate)
+                expect(result?.purchased?.gems).toEqual(14000)
+                findStripeSubscription customer.id, subscriptionID: joeData.stripe?.subscriptionID, (subscription) =>
+                  expect(subscription).toBeNull()
+                  nockDone()
+                  done()
 
     it 'User can redeem a prepaid code', (done) ->
       loginSam (sam) ->
@@ -533,20 +535,22 @@ describe '/db/prepaid', ->
 
 
     it 'Can fetch a list of purchased and redeemed prepaid codes', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginJoe (joe) ->
-          purchasePrepaid 'terminal_subscription', months: 1, 3, token.id, (err, res, prepaid) ->
-            request.get "#{getURL('/db/user')}/#{joe.id}/prepaid_codes", (err, res) ->
-              expect(err).toBeNull()
-              expect(res.statusCode).toEqual(200);
-              codes = JSON.parse res.body
-              expect(codes.length).toEqual(2)
-              expect(codes[0].maxRedeemers).toEqual(3)
-              expect(codes[0].properties).toBeDefined()
-              expect(codes[0].properties.months).toEqual(3)
-              done()
+      nockUtils.setupNock 'db-sub-redeem-test-2.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginJoe (joe) ->
+            purchasePrepaid 'terminal_subscription', months: 1, 3, token.id, (err, res, prepaid) ->
+              request.get "#{getURL('/db/user')}/#{joe.id}/prepaid_codes", (err, res) ->
+                expect(err).toBeNull()
+                expect(res.statusCode).toEqual(200);
+                codes = JSON.parse res.body
+                expect(codes.length).toEqual(2)
+                expect(codes[0].maxRedeemers).toEqual(3)
+                expect(codes[0].properties).toBeDefined()
+                expect(codes[0].properties.months).toEqual(3)
+                nockDone()
+                done()
 
     it 'Test for injection', (done) ->
       loginNewUser (user) ->
@@ -556,47 +560,51 @@ describe '/db/prepaid', ->
           expect(res.statusCode).not.toEqual(200)
           done()
 
-    it 'Test a bunch of people trying to redeem at once', (done) ->
-      doRedeem = (userX, code, testnum, retry, fnDone) =>
-        loginUser userX, () =>
-          endDate = new moment().add(3, 'months').toISOString().substring(0, 10)
-          subscribeWithPrepaid code, (err, res, result) ->
-            if err
-              return fnDone(err)
-
-            expect(err).toBeNull()
-            expect(result).toBeDefined()
-            if result.stripe
-              expect(result.stripe).toBeDefined()
-              expect(result.stripe.free).toEqual(endDate)
-              expect(result?.purchased?.gems).toEqual(10500)
-              return fnDone(null, {status: "ok", msg: "Redeemed " + retry})
-            else
-              return fnDone(null, {status: 'error', msg: "Redeem attempt Error #{result} (#{userX.id})" + retry })
-
-      redeemPrepaidFn = (code, testnum) =>
-        (fnDone) =>
-          loginNewUser (user1) =>
-            doRedeem(user1, code, testnum, 0, fnDone)
-
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user) =>
-          codeRedeemers = 50
-          codeMonths = 3
-          redeemers = 51
-          purchasePrepaid 'terminal_subscription', months: codeMonths, codeRedeemers, token.id, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            expect(prepaid).toBeDefined()
-            expect(prepaid.code).toBeDefined()
-            tasks = (redeemPrepaidFn(prepaid.code, i) for i in [0...redeemers])
-            async.parallel tasks, (err, results) =>
-              redeemed = 0
-              error = 0
-              for result in results
-                redeemed += 1 if result.status is 'ok'
-                error += 1 if result.status is 'error'
-              expect(redeemed).toEqual(codeRedeemers)
-              expect(error).toEqual(redeemers - codeRedeemers)
-              done()
+    # TODO: Fix this server test
+          
+    xit 'Test a bunch of people trying to redeem at once', (done) ->
+      nockUtils.setupNock 'db-sub-redeem-test-3.json', (err, nockDone) ->
+        doRedeem = (userX, code, testnum, retry, fnDone) =>
+          loginUser userX, () =>
+            endDate = new moment().add(3, 'months').toISOString().substring(0, 10)
+            subscribeWithPrepaid code, (err, res, result) ->
+              if err
+                return fnDone(err)
+  
+              expect(err).toBeNull()
+              expect(result).toBeDefined()
+              if result.stripe
+                expect(result.stripe).toBeDefined()
+                expect(result.stripe.free).toEqual(endDate)
+                expect(result?.purchased?.gems).toEqual(10500)
+                return fnDone(null, {status: "ok", msg: "Redeemed " + retry})
+              else
+                return fnDone(null, {status: 'error', msg: "Redeem attempt Error #{result} (#{userX.id})" + retry })
+  
+        redeemPrepaidFn = (code, testnum) =>
+          (fnDone) =>
+            loginNewUser (user1) =>
+              doRedeem(user1, code, testnum, 0, fnDone)
+  
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user) =>
+            codeRedeemers = 50
+            codeMonths = 3
+            redeemers = 51
+            purchasePrepaid 'terminal_subscription', months: codeMonths, codeRedeemers, token.id, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              expect(prepaid).toBeDefined()
+              expect(prepaid.code).toBeDefined()
+              tasks = (redeemPrepaidFn(prepaid.code, i) for i in [0...redeemers])
+              async.parallel tasks, (err, results) =>
+                redeemed = 0
+                error = 0
+                for result in results
+                  redeemed += 1 if result.status is 'ok'
+                  error += 1 if result.status is 'error'
+                expect(redeemed).toEqual(codeRedeemers)
+                expect(error).toEqual(redeemers - codeRedeemers)
+                nockDone()
+                done()
