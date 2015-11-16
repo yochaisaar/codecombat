@@ -252,6 +252,10 @@ _drop = (done) ->
     chunks = mongoose.connection.db.collection('media.chunks')
     chunks.remove {}, ->
       done()
+      
+GLOBAL.resetUserIDCounter = (number=0) ->
+  auth = require '../../server/routes/auth'
+  auth.idCounter = number
 
 #tickInterval = null
 #tick = ->

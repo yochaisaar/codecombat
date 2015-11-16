@@ -4,8 +4,8 @@ require '../common'
 utils = require '../../../app/core/utils' # Must come after require /common
 mongoose = require 'mongoose'
 TRAVIS = process.env.COCO_TRAVIS_TEST
+nockUtils = require '../nock-utils'
 
-# TODO: Re-enable subscription tests
 
 # sample data that comes in through the webhook when you subscribe
 invoiceChargeSampleEvent = {
@@ -85,7 +85,8 @@ customerSubscriptionDeletedSampleEvent = {
 }
 
 
-xdescribe '/db/user, editing stripe property', ->
+describe '/db/user, editing stripe property', ->
+  afterEach nockUtils.teardownNock
 
   stripe = require('stripe')(config.stripe.secretKey)
   userURL = getURL('/db/user')
@@ -95,6 +96,7 @@ xdescribe '/db/user, editing stripe property', ->
   it 'clears the db first', (done) ->
     clearModels [User, Payment], (err) ->
       throw err if err
+      resetUserIDCounter(100000) # because fixtures depend on dependable user ids
       done()
 
   it 'denies anonymous users trying to subscribe', (done) ->
@@ -110,114 +112,130 @@ xdescribe '/db/user, editing stripe property', ->
   firstSubscriptionID = null
 
   it 'returns client error when a token fails to charge', (done) ->
-    stripe.tokens.create {
-      card: { number: '4000000000000002', exp_month: 12, exp_year: 2020, cvc: '123' }
-    }, (err, token) ->
-      stripeTokenID = token.id
-      loginJoe (joe) ->
-        joeData = joe.toObject()
-        joeData.stripe = {
-          token: stripeTokenID
-          planID: 'basic'
-        }
-        request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
-          expect(res.statusCode).toBe(402)
-          done()
+    nockUtils.setupNock 'db-user-sub-test-1.json', (err, nockDone) ->
+      stripe.tokens.create {
+        card: { number: '4000000000000002', exp_month: 12, exp_year: 2020, cvc: '123' }
+      }, (err, token) ->
+        stripeTokenID = token.id
+        loginJoe (joe) ->
+          joeData = joe.toObject()
+          joeData.stripe = {
+            token: stripeTokenID
+            planID: 'basic'
+          }
+          request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
+            expect(res.statusCode).toBe(402)
+            nockDone()
+            done()
 
   it 'creates a subscription when you put a token and plan', (done) ->
-    stripe.tokens.create {
-      card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-    }, (err, token) ->
-      stripeTokenID = token.id
-      loginJoe (joe) ->
-        joeData = joe.toObject()
-        joeData.stripe = {
-          token: stripeTokenID
-          planID: 'basic'
-        }
-        request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
-          joeData = body
-          expect(res.statusCode).toBe(200)
-          expect(joeData.purchased.gems).toBe(3500)
-          expect(joeData.stripe.customerID).toBeDefined()
-          expect(firstSubscriptionID = joeData.stripe.subscriptionID).toBeDefined()
-          expect(joeData.stripe.planID).toBe('basic')
-          expect(joeData.stripe.token).toBeUndefined()
-          done()
+    nockUtils.setupNock 'db-user-sub-test-2.json', (err, nockDone) ->
+      stripe.tokens.create {
+        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+      }, (err, token) ->
+        stripeTokenID = token.id
+        loginJoe (joe) ->
+          joeData = joe.toObject()
+          joeData.stripe = {
+            token: stripeTokenID
+            planID: 'basic'
+          }
+          request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
+            joeData = body
+            expect(res.statusCode).toBe(200)
+            expect(joeData.purchased.gems).toBe(3500)
+            expect(joeData.stripe.customerID).toBeDefined()
+            expect(firstSubscriptionID = joeData.stripe.subscriptionID).toBeDefined()
+            expect(joeData.stripe.planID).toBe('basic')
+            expect(joeData.stripe.token).toBeUndefined()
+            nockDone()
+            done()
 
   it 'records a payment through the webhook', (done) ->
-    # Don't even want to think about hooking in tests to webhooks, so... put in some data manually
-    stripe.invoices.list {customer: joeData.stripe.customerID}, (err, invoices) ->
-      expect(invoices.data.length).toBe(1)
-      event = _.cloneDeep(invoiceChargeSampleEvent)
-      event.data.object = invoices.data[0]
-
-      request.post {uri: webhookURL, json: event}, (err, res, body) ->
-        expect(res.statusCode).toBe(201)
-        Payment.find {}, (err, payments) ->
-          expect(payments.length).toBe(1)
-          User.findById joeData._id, (err, user) ->
-            expect(user.get('purchased').gems).toBe(3500)
-            done()
+    nockUtils.setupNock 'db-user-sub-test-3.json', (err, nockDone) ->
+      # Don't even want to think about hooking in tests to webhooks, so... put in some data manually
+      stripe.invoices.list {customer: joeData.stripe.customerID}, (err, invoices) ->
+        expect(invoices.data.length).toBe(1)
+        event = _.cloneDeep(invoiceChargeSampleEvent)
+        event.data.object = invoices.data[0]
+  
+        request.post {uri: webhookURL, json: event}, (err, res, body) ->
+          expect(res.statusCode).toBe(201)
+          Payment.find {}, (err, payments) ->
+            expect(payments.length).toBe(1)
+            User.findById joeData._id, (err, user) ->
+              expect(user.get('purchased').gems).toBe(3500)
+              nockDone()
+              done()
 
   it 'schedules the stripe subscription to be cancelled when stripe.planID is removed from the user', (done) ->
-    delete joeData.stripe.planID
-    request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
-      joeData = body
-      expect(res.statusCode).toBe(200)
-      expect(joeData.stripe.subscriptionID).toBeDefined()
-      expect(joeData.stripe.planID).toBeUndefined()
-      expect(joeData.stripe.customerID).toBeDefined()
-      stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
-        expect(customer.subscriptions.data.length).toBe(1)
-        expect(customer.subscriptions.data[0].cancel_at_period_end).toBe(true)
-        done()
-
-  it 'allows you to sign up again using the same customer ID as before, no token necessary', (done) ->
-    joeData.stripe.planID = 'basic'
-    request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
-      joeData = body
-
-      expect(res.statusCode).toBe(200)
-      expect(joeData.stripe.customerID).toBeDefined()
-      expect(joeData.stripe.subscriptionID).toBeDefined()
-      expect(joeData.stripe.subscriptionID).not.toBe(firstSubscriptionID)
-      expect(joeData.stripe.planID).toBe('basic')
-      done()
-
-  it 'will not have immediately created new payments when signing back up from a cancelled subscription', (done) ->
-    stripe.invoices.list {customer: joeData.stripe.customerID}, (err, invoices) ->
-      expect(invoices.data.length).toBe(2)
-      expect(invoices.data[0].total).toBe(0)
-      event = _.cloneDeep(invoiceChargeSampleEvent)
-      event.data.object = invoices.data[0]
-
-      request.post {uri: webhookURL, json: event}, (err, res, body) ->
+    nockUtils.setupNock 'db-user-sub-test-4.json', (err, nockDone) ->
+      delete joeData.stripe.planID
+      request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
+        joeData = body
         expect(res.statusCode).toBe(200)
-        Payment.find {}, (err, payments) ->
-          expect(payments.length).toBe(1)
-          User.findById joeData._id, (err, user) ->
-            expect(user.get('purchased').gems).toBe(3500)
-            done()
-
-  it 'deletes the subscription from the user object when an event about it comes through the webhook', (done) ->
-    stripe.customers.retrieveSubscription joeData.stripe.customerID, joeData.stripe.subscriptionID, (err, subscription) ->
-      event = _.cloneDeep(customerSubscriptionDeletedSampleEvent)
-      event.data.object = subscription
-      request.post {uri: webhookURL, json: event}, (err, res, body) ->
-        User.findById joeData._id, (err, user) ->
-          expect(user.get('purchased').gems).toBe(3500)
-          expect(user.get('stripe').subscriptionID).toBeUndefined()
-          expect(user.get('stripe').planID).toBeUndefined()
+        expect(joeData.stripe.subscriptionID).toBeDefined()
+        expect(joeData.stripe.planID).toBeUndefined()
+        expect(joeData.stripe.customerID).toBeDefined()
+        stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
+          expect(customer.subscriptions.data.length).toBe(1)
+          expect(customer.subscriptions.data[0].cancel_at_period_end).toBe(true)
+          nockDone()
           done()
 
-  it "updates the customer's email when you change the user's email", (done) ->
-    joeData.email = 'newEmail@gmail.com'
-    request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
-      f = -> stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
-        expect(customer.email).toBe('newEmail@gmail.com')
+  it 'allows you to sign up again using the same customer ID as before, no token necessary', (done) ->
+    nockUtils.setupNock 'db-user-sub-test-5.json', (err, nockDone) ->
+      joeData.stripe.planID = 'basic'
+      request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
+        joeData = body
+  
+        expect(res.statusCode).toBe(200)
+        expect(joeData.stripe.customerID).toBeDefined()
+        expect(joeData.stripe.subscriptionID).toBeDefined()
+        expect(joeData.stripe.subscriptionID).not.toBe(firstSubscriptionID)
+        expect(joeData.stripe.planID).toBe('basic')
+        nockDone()
         done()
-      setTimeout(f, 500) # bit of a race condition here, response returns before stripe has been updated
+
+  it 'will not have immediately created new payments when signing back up from a cancelled subscription', (done) ->
+    nockUtils.setupNock 'db-user-sub-test-6.json', (err, nockDone) ->
+      stripe.invoices.list {customer: joeData.stripe.customerID}, (err, invoices) ->
+        expect(invoices.data.length).toBe(2)
+        expect(invoices.data[0].total).toBe(0)
+        event = _.cloneDeep(invoiceChargeSampleEvent)
+        event.data.object = invoices.data[0]
+  
+        request.post {uri: webhookURL, json: event}, (err, res, body) ->
+          expect(res.statusCode).toBe(200)
+          Payment.find {}, (err, payments) ->
+            expect(payments.length).toBe(1)
+            User.findById joeData._id, (err, user) ->
+              expect(user.get('purchased').gems).toBe(3500)
+              nockDone()
+              done()
+
+  it 'deletes the subscription from the user object when an event about it comes through the webhook', (done) ->
+    nockUtils.setupNock 'db-user-sub-test-7.json', (err, nockDone) ->
+      stripe.customers.retrieveSubscription joeData.stripe.customerID, joeData.stripe.subscriptionID, (err, subscription) ->
+        event = _.cloneDeep(customerSubscriptionDeletedSampleEvent)
+        event.data.object = subscription
+        request.post {uri: webhookURL, json: event}, (err, res, body) ->
+          User.findById joeData._id, (err, user) ->
+            expect(user.get('purchased').gems).toBe(3500)
+            expect(user.get('stripe').subscriptionID).toBeUndefined()
+            expect(user.get('stripe').planID).toBeUndefined()
+            nockDone()
+            done()
+
+  it "updates the customer's email when you change the user's email", (done) ->
+    nockUtils.setupNock 'db-user-sub-test-8.json', (err, nockDone) ->
+      joeData.email = 'newEmail@gmail.com'
+      request.put {uri: userURL, json: joeData, headers: headers }, (err, res, body) ->
+        f = -> stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
+          expect(customer.email).toBe('newEmail@gmail.com')
+          nockDone()
+          done()
+        setTimeout(f, 500) # bit of a race condition here, response returns before stripe has been updated
 
 
 xdescribe 'Subscriptions', ->
