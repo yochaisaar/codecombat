@@ -6,7 +6,7 @@ nockUtils = require '../nock-utils'
 
 # TODO: Re-enable payment tests
 
-describe '/db/payment', ->
+xdescribe '/db/payment', ->
   request = require 'request'
   paymentURL = getURL('/db/payment')
   checkChargesURL = getURL('/db/payment/check-stripe-charges')
