@@ -45,6 +45,7 @@ xdescribe '/db/prepaid', ->
           redeemers: [],
           creator: user1.get('_id')
           code: 0
+          type: 'course'
         })
         prepaid.save (err, prepaid) ->
           otherUser = new User()
@@ -103,21 +104,25 @@ xdescribe '/db/prepaid', ->
           prepaid1 = new Prepaid({
             redeemers: [{userID: otherUser.get('_id')}],
             code: 3
+            type: 'course'
           })
           prepaid1.save (err, prepaid1) ->
-            prepaid2 = new Prepaid({
-              maxRedeemers: 10,
-              redeemers: [],
-              creator: user1.get('_id')
-              code: 4
-            })
-            prepaid2.save (err, prepaid2) ->
-              url = getURL("/db/prepaid/#{prepaid2.id}/redeemers")
-              redeemer = { userID: otherUser.id }
-              request.post {uri: url, json: redeemer }, (err, res, body) ->
-                expect(res.statusCode).toBe(200)
-                expect(body.redeemers.length).toBe(0)
-                done()
+            otherUser.set 'coursePrepaidID', prepaid1.id
+            otherUser.save (err, otherUser) ->
+              prepaid2 = new Prepaid({
+                maxRedeemers: 10,
+                redeemers: [],
+                creator: user1.get('_id')
+                code: 4
+                type: 'course'
+              })
+              prepaid2.save (err, prepaid2) ->
+                url = getURL("/db/prepaid/#{prepaid2.id}/redeemers")
+                redeemer = { userID: otherUser.id }
+                request.post {uri: url, json: redeemer }, (err, res, body) ->
+                  expect(res.statusCode).toBe(200)
+                  expect(body.redeemers.length).toBe(0)
+                  done()
 
   it 'Clear database', (done) ->
     clearModels [Course, CourseInstance, Payment, Prepaid, User], (err) ->
