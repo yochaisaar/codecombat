@@ -276,113 +276,131 @@ describe '/db/prepaid', ->
                 nockDone()
                 done()
             
-  xdescribe 'Purchase terminal_subscription', ->
+  describe 'Purchase terminal_subscription', ->
+    afterEach nockUtils.teardownNock
+    
     it 'Anonymous submits a prepaid purchase', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        logoutUser () ->
-          purchasePrepaid 'terminal_subscription', months: 3, 3, token.id, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            expect(res.statusCode).toBe(401)
-            done()
+      nockUtils.setupNock 'db-prepaid-purchase-term-sub-test-1.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          logoutUser () ->
+            purchasePrepaid 'terminal_subscription', months: 3, 3, token.id, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              expect(res.statusCode).toBe(401)
+              nockDone()
+              done()
 
     it 'Should error if type isnt terminal_subscription', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          purchasePrepaid 'subscription', months: 3, 3, token.id, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            expect(res.statusCode).toBe(403)
-            done()
+      nockUtils.setupNock 'db-prepaid-purchase-term-sub-test-2.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            purchasePrepaid 'subscription', months: 3, 3, token.id, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              expect(res.statusCode).toBe(403)
+              nockDone()
+              done()
 
     it 'Should error if maxRedeemers is -1', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          purchasePrepaid 'terminal_subscription', months: 3, -1, token.id, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            expect(res.statusCode).toBe(422)
-            done()
+      nockUtils.setupNock 'db-prepaid-purchase-term-sub-test-3.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            purchasePrepaid 'terminal_subscription', months: 3, -1, token.id, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              expect(res.statusCode).toBe(422)
+              nockDone()
+              done()
 
     it 'Should error if maxRedeemers is foo', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          purchasePrepaid 'terminal_subscription', months: 3, 'foo', token.id, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            expect(res.statusCode).toBe(422)
-            done()
+      nockUtils.setupNock 'db-prepaid-purchase-term-sub-test-4.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            purchasePrepaid 'terminal_subscription', months: 3, 'foo', token.id, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              expect(res.statusCode).toBe(422)
+              nockDone()
+              done()
 
     it 'Should error if months is -1', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          purchasePrepaid 'terminal_subscription', months: -1, 3, token.id, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            expect(res.statusCode).toBe(422)
-            done()
+      nockUtils.setupNock 'db-prepaid-purchase-term-sub-test-5.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            purchasePrepaid 'terminal_subscription', months: -1, 3, token.id, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              expect(res.statusCode).toBe(422)
+              nockDone()
+              done()
 
     it 'Should error if months is foo', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          purchasePrepaid 'terminal_subscription', months: 'foo', 3, token.id, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            expect(res.statusCode).toBe(422)
-            done()
+      nockUtils.setupNock 'db-prepaid-purchase-term-sub-test-6.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            purchasePrepaid 'terminal_subscription', months: 'foo', 3, token.id, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              expect(res.statusCode).toBe(422)
+              nockDone()
+              done()
 
     it 'Should error if maxRedeemers and months are less than 3', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          purchasePrepaid 'terminal_subscription', months: 1, 1, token.id, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            expect(res.statusCode).toBe(403)
-            done()
+      nockUtils.setupNock 'db-prepaid-purchase-term-sub-test-7.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            purchasePrepaid 'terminal_subscription', months: 1, 1, token.id, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              expect(res.statusCode).toBe(403)
+              nockDone()
+              done()
 
     it 'User submits valid prepaid code purchase', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        stripeTokenID = token.id
-        loginJoe (joe) ->
-          joeData = joe.toObject()
-          joeData.stripe = {
-            token: stripeTokenID
-            planID: 'basic'
-          }
-          request.put {uri: getURL('/db/user'), json: joeData, headers: headers }, (err, res, body) ->
-            joeData = body
-            expect(res.statusCode).toBe(200)
-            expect(joeData.stripe.customerID).toBeDefined()
-            expect(firstSubscriptionID = joeData.stripe.subscriptionID).toBeDefined()
-            expect(joeData.stripe.planID).toBe('basic')
-            expect(joeData.stripe.token).toBeUndefined()
-            # TODO: is this test still valid after new token?
-            stripe.tokens.create {
-              card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-            }, (err, token) ->
-              purchasePrepaid 'terminal_subscription', months: 3, 3, token.id, (err, res, prepaid) ->
-                expect(err).toBeNull()
-                expect(res.statusCode).toBe(200)
-                expect(prepaid.type).toEqual('terminal_subscription')
-                expect(prepaid.code).toBeDefined()
-                # Saving this code for later tests
-                # TODO: don't make tests dependent on each other
-                joeCode = prepaid.code
-                expect(prepaid.creator).toBeDefined()
-                expect(prepaid.maxRedeemers).toEqual(3)
-                expect(prepaid.exhausted).toBe(false)
-                expect(prepaid.properties).toBeDefined()
-                expect(prepaid.properties.months).toEqual(3)
-                done()
+      nockUtils.setupNock 'db-prepaid-purchase-term-sub-test-8.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          stripeTokenID = token.id
+          loginJoe (joe) ->
+            joeData = joe.toObject()
+            joeData.stripe = {
+              token: stripeTokenID
+              planID: 'basic'
+            }
+            request.put {uri: getURL('/db/user'), json: joeData, headers: headers }, (err, res, body) ->
+              joeData = body
+              expect(res.statusCode).toBe(200)
+              expect(joeData.stripe.customerID).toBeDefined()
+              expect(firstSubscriptionID = joeData.stripe.subscriptionID).toBeDefined()
+              expect(joeData.stripe.planID).toBe('basic')
+              expect(joeData.stripe.token).toBeUndefined()
+              # TODO: is this test still valid after new token?
+              stripe.tokens.create {
+                card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+              }, (err, token) ->
+                purchasePrepaid 'terminal_subscription', months: 3, 3, token.id, (err, res, prepaid) ->
+                  expect(err).toBeNull()
+                  expect(res.statusCode).toBe(200)
+                  expect(prepaid.type).toEqual('terminal_subscription')
+                  expect(prepaid.code).toBeDefined()
+                  # Saving this code for later tests
+                  # TODO: don't make tests dependent on each other
+                  joeCode = prepaid.code
+                  expect(prepaid.creator).toBeDefined()
+                  expect(prepaid.maxRedeemers).toEqual(3)
+                  expect(prepaid.exhausted).toBe(false)
+                  expect(prepaid.properties).toBeDefined()
+                  expect(prepaid.properties.months).toEqual(3)
+                  nockDone()
+                  done()
 
     it 'Should have logged a Payment with the correct amount', (done) ->
       loginJoe (joe) ->
