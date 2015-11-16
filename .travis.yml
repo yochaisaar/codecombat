@@ -16,7 +16,6 @@ cache:
   directories:
     - node_modules
     - bower_components
-    - spec/fixtures
 
 before_install:
   - export COCO_TRAVIS_TEST=1
