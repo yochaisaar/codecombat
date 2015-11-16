@@ -40,12 +40,14 @@ describe '/db/payment', ->
     afterEach nockUtils.teardownNock
 
     it 'denies anonymous users trying to pay', (done) ->
+      console.log '1'
       request.get getURL('/auth/whoami'), ->
         request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
           expect(res.statusCode).toBe 403
           done()
 
     it 'creates a payment object and credits gems to the user', (done) ->
+      console.log '2'
       nockUtils.setupNock 'db-payment-apple-test-1.json', (err, nockDone) ->
         loginJoe ->
           request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
@@ -58,6 +60,7 @@ describe '/db/payment', ->
             )
 
     it 'is idempotent', (done) ->
+      console.log '3'
       nockUtils.setupNock 'db-payment-apple-test-2.json', (err, nockDone) ->
         loginJoe ->
           request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
@@ -70,6 +73,7 @@ describe '/db/payment', ->
             )
 
     it 'prevents other users from reusing payment receipts', (done) ->
+      console.log '4'
       nockUtils.setupNock 'db-payment-apple-test-3.json', (err, nockDone) ->
         loginSam ->
           request.post {uri: paymentURL, json: firstApplePayment}, (err, res, body) ->
@@ -78,6 +82,7 @@ describe '/db/payment', ->
             done()
 
     it 'processes only the transactionID that is given', (done) ->
+      console.log '5'
       nockUtils.setupNock 'db-payment-apple-test-4.json', (err, nockDone) ->
         loginJoe ->
           request.post {uri: paymentURL, json: secondApplePayment}, (err, res, body) ->
@@ -100,11 +105,13 @@ describe '/db/payment', ->
     joeData = null
 
     it 'clears the db first', (done) ->
+      console.log '6'
       clearModels [User, Payment], (err) ->
         throw err if err
         done()
 
     it 'handles a purchase', (done) ->
+      console.log '7'
       nockUtils.setupNock 'db-payment-stripe-test-01.json', (err, nockDone) ->
         stripe.tokens.create({
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
@@ -139,6 +146,7 @@ describe '/db/payment', ->
         )
 
     it 'ignores repeated purchases', (done) ->
+      console.log '8'
       nockUtils.setupNock 'db-payment-stripe-test-02.json', (err, nockDone) ->
         data = { productID: 'gems_5', stripe: { token: stripeTokenID, timestamp: timestamp } }
         request.post {uri: paymentURL, json: data }, (err, res, body) ->
@@ -153,6 +161,7 @@ describe '/db/payment', ->
           )
 
     it 'allows a new charge on the existing customer', (done) ->
+      console.log '9'
       nockUtils.setupNock 'db-payment-stripe-test-03.json', (err, nockDone) ->
         data = { productID: 'gems_5', stripe: { timestamp: new Date().getTime() } }
         request.post {uri: paymentURL, json: data }, (err, res, body) ->
@@ -166,6 +175,7 @@ describe '/db/payment', ->
               done()
 
     it "updates the customer's card when you submit a new token", (done) ->
+      console.log '10'
       nockUtils.setupNock 'db-payment-stripe-test-04.json', (err, nockDone) ->
         stripe.customers.retrieve joeData.stripe.customerID, (err, customer) ->
           originalCustomerID = customer.id
@@ -185,11 +195,13 @@ describe '/db/payment', ->
                   done()
 
     it 'clears the db', (done) ->
+      console.log '11'
       clearModels [User, Payment], (err) ->
         throw err if err
         done()
 
     it 'recovers from breaking between charge and document creation', (done) ->
+      console.log '12'
       nockUtils.setupNock 'db-payment-stripe-test-05.json', (err, nockDone) ->
         stripe.tokens.create({
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
@@ -220,6 +232,7 @@ describe '/db/payment', ->
         )
 
     it 'clears the db', (done) ->
+      console.log '13'
       clearModels [User, Payment], (err) ->
         throw err if err
         done()
@@ -227,6 +240,7 @@ describe '/db/payment', ->
     # Testing card numbers are here: https://stripe.com/docs/testing
 
     it 'handles card that attaches to customer but fails to be charged', (done) ->
+      console.log '14'
       nockUtils.setupNock 'db-payment-stripe-test-06.json', (err, nockDone) ->
         stripe.tokens.create({
             card: { number: '4000000000000341', exp_month: 12, exp_year: 2020, cvc: '123' }
@@ -241,6 +255,7 @@ describe '/db/payment', ->
         )
 
     it 'handles card that always is declined with card_declined code', (done) ->
+      console.log '15'
       nockUtils.setupNock 'db-payment-stripe-test-07.json', (err, nockDone) ->
         stripe.tokens.create({
             card: { number: '4000000000000002', exp_month: 12, exp_year: 2020, cvc: '123' }
@@ -255,6 +270,7 @@ describe '/db/payment', ->
         )
 
     it 'handles card that always is declined with incorrect_cvc code', (done) ->
+      console.log '16'
       nockUtils.setupNock 'db-payment-stripe-test-08.json', (err, nockDone) ->
         stripe.tokens.create({
             card: { number: '4000000000000127', exp_month: 12, exp_year: 2020, cvc: '123' }
@@ -269,6 +285,7 @@ describe '/db/payment', ->
         )
 
     it 'handles card that always is declined with expired_card code', (done) ->
+      console.log '17'
       nockUtils.setupNock 'db-payment-stripe-test-09.json', (err, nockDone) ->
         stripe.tokens.create({
             card: { number: '4000000000000069', exp_month: 12, exp_year: 2020, cvc: '123' }
@@ -283,6 +300,7 @@ describe '/db/payment', ->
         )
 
     it 'handles card that always is declined with processing_error code', (done) ->
+      console.log '18'
       nockUtils.setupNock 'db-payment-stripe-test-10.json', (err, nockDone) ->
         stripe.tokens.create({
             card: { number: '4000000000000119', exp_month: 12, exp_year: 2020, cvc: '123' }
@@ -301,11 +319,13 @@ describe '/db/payment', ->
     stripe = require('stripe')(config.stripe.secretKey)
 
     it 'clears the db', (done) ->
+      console.log '19'
       clearModels [User, Payment], (err) ->
         throw err if err
         done()
 
     it 'finds and records charges which are not in our db', (done) ->
+      console.log '20'
       nockUtils.setupNock 'db-payment-check-stripe-charges-test-01.json', (err, nockDone) ->
         timestamp = new Date().getTime()
         stripe.tokens.create {
@@ -338,11 +358,13 @@ describe '/db/payment', ->
     stripe = require('stripe')(config.stripe.secretKey)
 
     it 'clears the db', (done) ->
+      console.log '21'
       clearModels [User, Payment], (err) ->
         throw err if err
         done()
 
     it 'handles a custom purchase with description', (done) ->
+      console.log '22'
       nockUtils.setupNock 'db-payment-custom-stripe-test-01.json', (err, nockDone) ->
         timestamp = 1447445242091
         amount = 5000
@@ -392,6 +414,7 @@ describe '/db/payment', ->
         )
 
     it 'handles a custom purchase without description', (done) ->
+      console.log '23'
       nockUtils.setupNock 'db-payment-custom-stripe-test-02.json', (err, nockDone) ->
         timestamp = 1447445242092
         amount = 73000
@@ -437,6 +460,7 @@ describe '/db/payment', ->
         )
 
     it 'handles a custom purchase with invalid amount', (done) ->
+      console.log '24'
       nockUtils.setupNock 'db-payment-custom-stripe-test-03.json', (err, nockDone) ->
         timestamp = 1447445242093
         amount = 'free?'
@@ -461,6 +485,7 @@ describe '/db/payment', ->
         )
 
     it 'handles a custom purchase with no amount', (done) ->
+      console.log '25'
       nockUtils.setupNock 'db-payment-custom-stripe-test-03.json', (err, nockDone) ->
         timestamp = 1447445242094
   

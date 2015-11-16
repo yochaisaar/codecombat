@@ -21,15 +21,15 @@ module.exports.connect = () ->
   mongooseCache.install(mongoose, {max: 200, maxAge: 1 * 60 * 1000, debug: false}, Aggregate)
 
 module.exports.generateMongoConnectionString = ->
-  if not testing and config.tokyo
+  if not global.testing and config.tokyo
     address = config.mongo.mongoose_tokyo_replica_string
-  else if not testing and config.saoPaulo
+  else if not global.testing and config.saoPaulo
     address = config.mongo.mongoose_saoPaulo_replica_string
-  else if not testing and config.mongo.mongoose_replica_string
+  else if not global.testing and config.mongo.mongoose_replica_string
     address = config.mongo.mongoose_replica_string
   else
     dbName = config.mongo.db
-    dbName += '_unittest' if testing
+    dbName += '_unittest' if global.testing
     address = config.mongo.host + ':' + config.mongo.port
     if config.mongo.username and config.mongo.password
       address = config.mongo.username + ':' + config.mongo.password + '@' + address
