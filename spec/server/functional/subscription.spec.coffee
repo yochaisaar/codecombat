@@ -238,7 +238,7 @@ describe '/db/user, editing stripe property', ->
         setTimeout(f, 500) # bit of a race condition here, response returns before stripe has been updated
 
 
-xdescribe 'Subscriptions', ->
+describe 'Subscriptions', ->
   # TODO: Test recurring billing via webhooks
   # TODO: Test error rollbacks, Stripe is authority
 
@@ -249,6 +249,7 @@ xdescribe 'Subscriptions', ->
   subPrice = 999
   subGems = 3500
   invoicesWebHooked = {}
+  afterEach nockUtils.teardownNock
 
   # Start helpers
 
@@ -350,7 +351,7 @@ xdescribe 'Subscriptions', ->
               break
           expect(recipientInfo).toBeDefined()
           expect(recipientInfo.subscriptionID).toBeDefined()
-          expect(recipientInfo.subscriptionID).toNotEqual(sponsorStripe.sponsorSubscriptionID)
+          expect(recipientInfo.subscriptionID).not.toEqual(sponsorStripe.sponsorSubscriptionID)
           expect(recipientInfo.couponID).toEqual('free')
 
           # Verify Stripe recipient subscription data
@@ -540,126 +541,137 @@ xdescribe 'Subscriptions', ->
 
   describe 'Personal', ->
     it 'Subscribe user with new token', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          subscribeUser user1, token, null, done
+      nockUtils.setupNock 'sub-test-01.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            subscribeUser user1, token, null, ->
+              nockDone()
+              done()
 
     it 'User delete unsubscribes', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          subscribeUser user1, token, null, ->
-            User.findById user1.id, (err, user1) ->
-              expect(err).toBeNull()
-              customerID = user1.get('stripe').customerID
-              subscriptionID = user1.get('stripe').subscriptionID
-              request.del {uri: "#{userURL}/#{user1.id}"}, (err, res) ->
+      nockUtils.setupNock 'sub-test-02.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            subscribeUser user1, token, null, ->
+              User.findById user1.id, (err, user1) ->
                 expect(err).toBeNull()
-                stripe.customers.retrieveSubscription customerID, subscriptionID, (err, subscription) ->
-                  expect(err).toBeNull()
-                  expect(subscription?.cancel_at_period_end).toEqual(true)
-                  done()
-
-    it 'User subscribes, deletes themselves, subscription ends', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          # Subscribe user
-          subscribeUser user1, token, null, ->
-            User.findById user1.id, (err, user1) ->
-              expect(err).toBeNull()
-              customerID = user1.get('stripe').customerID
-              subscriptionID = user1.get('stripe').subscriptionID
-              stripe.customers.retrieveSubscription customerID, subscriptionID, (err, subscription) ->
-                expect(err).toBeNull()
-                expect(subscription).not.toBeNull()
-                # Delete user
+                customerID = user1.get('stripe').customerID
+                subscriptionID = user1.get('stripe').subscriptionID
                 request.del {uri: "#{userURL}/#{user1.id}"}, (err, res) ->
                   expect(err).toBeNull()
-                  # Simulate Stripe subscription deleted via webhook
-                  event = _.cloneDeep(customerSubscriptionDeletedSampleEvent)
-                  event.data.object = subscription
-                  request.post {uri: webhookURL, json: event}, (err, res, body) ->
+                  stripe.customers.retrieveSubscription customerID, subscriptionID, (err, subscription) ->
                     expect(err).toBeNull()
-                    expect(res.statusCode).toEqual(200)
+                    expect(subscription?.cancel_at_period_end).toEqual(true)
+                    nockDone()
                     done()
 
-    it 'Subscribe with prepaid, then delete', (done) ->
-      loginNewUser (user1) ->
-        user1.set('permissions', ['admin'])
-        user1.save (err, user1) ->
-          expect(err).toBeNull()
-          expect(user1.isAdmin()).toEqual(true)
-          createPrepaid 'subscription', 1, 0, (err, res, prepaid) ->
-            expect(err).toBeNull()
-            subscribeUser user1, null, prepaid.code, ->
-              Prepaid.findById prepaid._id, (err, prepaid) ->
+    it 'User subscribes, deletes themselves, subscription ends', (done) ->
+      nockUtils.setupNock 'sub-test-03.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            # Subscribe user
+            subscribeUser user1, token, null, ->
+              User.findById user1.id, (err, user1) ->
                 expect(err).toBeNull()
-                expect(prepaid.get('maxRedeemers')).toEqual(1)
-                expect(prepaid.get('redeemers')[0].userID).toEqual(user1.get('_id'))
-                expect(prepaid.get('redeemers')[0].date).toBeLessThan(new Date())
-                User.findById user1.id, (err, user1) ->
+                customerID = user1.get('stripe').customerID
+                subscriptionID = user1.get('stripe').subscriptionID
+                stripe.customers.retrieveSubscription customerID, subscriptionID, (err, subscription) ->
                   expect(err).toBeNull()
-                  unsubscribeUser user1, ->
-                    User.findById user1.id, (err, user1) ->
+                  expect(subscription).not.toBeNull()
+                  # Delete user
+                  request.del {uri: "#{userURL}/#{user1.id}"}, (err, res) ->
+                    expect(err).toBeNull()
+                    # Simulate Stripe subscription deleted via webhook
+                    event = _.cloneDeep(customerSubscriptionDeletedSampleEvent)
+                    event.data.object = subscription
+                    request.post {uri: webhookURL, json: event}, (err, res, body) ->
                       expect(err).toBeNull()
-                      stripeInfo = user1.get('stripe')
-                      expect(stripeInfo.prepaidCode).toEqual(prepaid.get('code'))
-                      expect(stripeInfo.subscriptionID).toBeDefined()
-                      return done() unless stripeInfo.subscriptionID
+                      expect(res.statusCode).toEqual(200)
+                      nockDone()
+                      done()
 
-                      # Delete subscription
-                      stripe.customers.retrieveSubscription stripeInfo.customerID, stripeInfo.subscriptionID, (err, subscription) ->
-                        expect(err).toBeNull()
-                        event = _.cloneDeep(customerSubscriptionDeletedSampleEvent)
-                        event.data.object = subscription
-                        request.post {uri: webhookURL, json: event}, (err, res, body) ->
-                          expect(err).toBeNull()
-                          User.findById user1.id, (err, user1) ->
-                            expect(err).toBeNull()
-                            stripeInfo = user1.get('stripe')
-                            expect(stripeInfo.planID).toBeUndefined()
-                            expect(stripeInfo.prepaidCode).toBeUndefined()
-                            expect(stripeInfo.subscriptionID).toBeUndefined()
-                            done()
-
-    it 'Subscribe normally, subscribe with valid prepaid', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
+    it 'Subscribe with prepaid, then delete', (done) ->
+      nockUtils.setupNock 'sub-test-04.json', (err, nockDone) ->
         loginNewUser (user1) ->
           user1.set('permissions', ['admin'])
           user1.save (err, user1) ->
             expect(err).toBeNull()
             expect(user1.isAdmin()).toEqual(true)
-            subscribeUser user1, token, null, ->
-              User.findById user1.id, (err, user1) ->
-                expect(err).toBeNull()
-                createPrepaid 'subscription', 1, 0, (err, res, prepaid) ->
+            createPrepaid 'subscription', 1, 0, (err, res, prepaid) ->
+              expect(err).toBeNull()
+              subscribeUser user1, null, prepaid.code, ->
+                Prepaid.findById prepaid._id, (err, prepaid) ->
                   expect(err).toBeNull()
-                  subscribeUser user1, null, prepaid.code, ->
-                    Prepaid.findById prepaid._id, (err, prepaid) ->
-                      expect(err).toBeNull()
-                      expect(prepaid.get('maxRedeemers')).toEqual(1)
-                      expect(prepaid.get('redeemers')[0].userID).toEqual(user1.get('_id'))
-                      expect(prepaid.get('redeemers')[0].date).toBeLessThan(new Date())
+                  expect(prepaid.get('maxRedeemers')).toEqual(1)
+                  expect(prepaid.get('redeemers')[0].userID).toEqual(user1.get('_id'))
+                  expect(prepaid.get('redeemers')[0].date).toBeLessThan(new Date())
+                  User.findById user1.id, (err, user1) ->
+                    expect(err).toBeNull()
+                    unsubscribeUser user1, ->
                       User.findById user1.id, (err, user1) ->
                         expect(err).toBeNull()
-                        customerID = user1.get('stripe').customerID
-                        subscriptionID = user1.get('stripe').subscriptionID
-                        stripe.customers.retrieveSubscription customerID, subscriptionID, (err, subscription) ->
+                        stripeInfo = user1.get('stripe')
+                        expect(stripeInfo.prepaidCode).toEqual(prepaid.get('code'))
+                        expect(stripeInfo.subscriptionID).toBeDefined()
+                        return done() unless stripeInfo.subscriptionID
+  
+                        # Delete subscription
+                        stripe.customers.retrieveSubscription stripeInfo.customerID, stripeInfo.subscriptionID, (err, subscription) ->
                           expect(err).toBeNull()
-                          expect(subscription).not.toBeNull()
-                          return done() unless subscription
-                          expect(subscription.discount?.coupon?.id).toEqual('free')
-                          done()
+                          event = _.cloneDeep(customerSubscriptionDeletedSampleEvent)
+                          event.data.object = subscription
+                          request.post {uri: webhookURL, json: event}, (err, res, body) ->
+                            expect(err).toBeNull()
+                            User.findById user1.id, (err, user1) ->
+                              expect(err).toBeNull()
+                              stripeInfo = user1.get('stripe')
+                              expect(stripeInfo.planID).toBeUndefined()
+                              expect(stripeInfo.prepaidCode).toBeUndefined()
+                              expect(stripeInfo.subscriptionID).toBeUndefined()
+                              nockDone()
+                              done()
 
-    unless TRAVIS
-      it 'Subscribe with coupon, subscribe with valid prepaid', (done) ->
+    it 'Subscribe normally, subscribe with valid prepaid', (done) ->
+      nockUtils.setupNock 'sub-test-05.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            user1.set('permissions', ['admin'])
+            user1.save (err, user1) ->
+              expect(err).toBeNull()
+              expect(user1.isAdmin()).toEqual(true)
+              subscribeUser user1, token, null, ->
+                User.findById user1.id, (err, user1) ->
+                  expect(err).toBeNull()
+                  createPrepaid 'subscription', 1, 0, (err, res, prepaid) ->
+                    expect(err).toBeNull()
+                    subscribeUser user1, null, prepaid.code, ->
+                      Prepaid.findById prepaid._id, (err, prepaid) ->
+                        expect(err).toBeNull()
+                        expect(prepaid.get('maxRedeemers')).toEqual(1)
+                        expect(prepaid.get('redeemers')[0].userID).toEqual(user1.get('_id'))
+                        expect(prepaid.get('redeemers')[0].date).toBeLessThan(new Date())
+                        User.findById user1.id, (err, user1) ->
+                          expect(err).toBeNull()
+                          customerID = user1.get('stripe').customerID
+                          subscriptionID = user1.get('stripe').subscriptionID
+                          stripe.customers.retrieveSubscription customerID, subscriptionID, (err, subscription) ->
+                            expect(err).toBeNull()
+                            expect(subscription).not.toBeNull()
+                            return done() unless subscription
+                            expect(subscription.discount?.coupon?.id).toEqual('free')
+                            nockDone()
+                            done()
+
+    it 'Subscribe with coupon, subscribe with valid prepaid', (done) ->
+      nockUtils.setupNock 'sub-test-06.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -689,9 +701,11 @@ xdescribe 'Subscriptions', ->
                           expect(err).toBeNull()
                           expect(subscription).not.toBeNull()
                           expect(subscription?.discount?.coupon?.id).toEqual('free')
+                          nockDone()
                           done()
 
-      it 'Subscribe with prepaid, then cancel', (done) ->
+    it 'Subscribe with prepaid, then cancel', (done) ->
+      nockUtils.setupNock 'sub-test-07.json', (err, nockDone) ->
         loginNewUser (user1) ->
           user1.set('permissions', ['admin'])
           user1.save (err, user1) ->
@@ -711,9 +725,11 @@ xdescribe 'Subscriptions', ->
                       User.findById user1.id, (err, user1) ->
                         expect(err).toBeNull()
                         expect(user1.get('stripe').prepaidCode).toEqual(prepaid.get('code'))
+                        nockDone()
                         done()
 
-      it 'User2 subscribes with used prepaid', (done) ->
+    it 'User2 subscribes with used prepaid', (done) ->
+      nockUtils.setupNock 'sub-test-08.json', (err, nockDone) ->
         loginNewUser (user1) ->
           user1.set('permissions', ['admin'])
           user1.save (err, user1) ->
@@ -734,9 +750,11 @@ xdescribe 'Subscriptions', ->
                       expect(err).toBeNull()
                       expect(prepaid.get('redeemers')[0].userID).toEqual(user1.get('_id'))
                       expect(prepaid.get('redeemers')[0].date).toBeLessThan(new Date())
+                      nockDone()
                       done()
 
-      it 'User2 subscribes with same active prepaid', (done) ->
+    it 'User2 subscribes with same active prepaid', (done) ->
+      nockUtils.setupNock 'sub-test-09.json', (err, nockDone) ->
         loginNewUser (user1) ->
           user1.set('permissions', ['admin'])
           user1.save (err, user1) ->
@@ -750,9 +768,11 @@ xdescribe 'Subscriptions', ->
                     Prepaid.findById prepaid._id, (err, prepaid) ->
                       expect(err).toBeNull()
                       expect(prepaid.get('redeemers').length).toEqual(2)
+                      nockDone()
                       done()
 
-      it 'Admin subscribes self with valid prepaid', (done) ->
+    it 'Admin subscribes self with valid prepaid', (done) ->
+      nockUtils.setupNock 'sub-test-10.json', (err, nockDone) ->
         loginNewUser (user1) ->
           user1.set('permissions', ['admin'])
           user1.save (err, user1) ->
@@ -766,9 +786,11 @@ xdescribe 'Subscriptions', ->
                   expect(prepaid.get('maxRedeemers')).toEqual(1)
                   expect(prepaid.get('redeemers')[0].userID).toEqual(user1.get('_id'))
                   expect(prepaid.get('redeemers')[0].date).toBeLessThan(new Date())
+                  nockDone()
                   done()
 
-      it 'Admin subscribes self with valid prepaid twice', (done) ->
+    it 'Admin subscribes self with valid prepaid twice', (done) ->
+      nockUtils.setupNock 'sub-test-11.json', (err, nockDone) ->
         loginNewUser (user1) ->
           user1.set('permissions', ['admin'])
           user1.save (err, user1) ->
@@ -788,9 +810,11 @@ xdescribe 'Subscriptions', ->
                   request.put {uri: userURL, json: requestBody, headers: headers }, (err, res, body) ->
                     expect(err).toBeNull()
                     expect(res.statusCode).toBe(403)
+                    nockDone()
                     done()
 
-      it 'Admin subscribes self with invalid prepaid', (done) ->
+    it 'Admin subscribes self with invalid prepaid', (done) ->
+      nockUtils.setupNock 'sub-test-12.json', (err, nockDone) ->
         loginNewUser (user1) ->
           user1.set('permissions', ['admin'])
           user1.save (err, user1) ->
@@ -803,20 +827,25 @@ xdescribe 'Subscriptions', ->
             request.put {uri: userURL, json: requestBody, headers: headers }, (err, res, body) ->
               expect(err).toBeNull()
               expect(res.statusCode).toBe(404)
+              nockDone()
               done()
 
   describe 'Sponsored', ->
     it 'Unsubscribed user1 subscribes user2', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        createNewUser (user2) ->
-          loginNewUser (user1) ->
-            subscribeRecipients user1, [user2], token, (updatedUser) ->
-              verifySponsorship user1.id, user2.id, done
+      nockUtils.setupNock 'sub-test-13.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          createNewUser (user2) ->
+            loginNewUser (user1) ->
+              subscribeRecipients user1, [user2], token, (updatedUser) ->
+                verifySponsorship user1.id, user2.id, ->
+                  nockDone()
+                  done()
 
-    unless TRAVIS
-      it 'Recipient user delete unsubscribes', (done) ->
+    
+    it 'Recipient user delete unsubscribes', (done) ->
+      nockUtils.setupNock 'sub-test-14.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -842,9 +871,11 @@ xdescribe 'Subscriptions', ->
                         stripe.customers.retrieveSubscription customerID, user1.get('stripe').sponsorSubscriptionID, (err, subscription) ->
                           expect(err).toBeNull()
                           expect(subscription.quantity).toEqual(0)
+                          nockDone()
                           done()
 
-      it 'Subscribed user1 subscribes user2, one token', (done) ->
+    it 'Subscribed user1 subscribes user2, one token', (done) ->
+      nockUtils.setupNock 'sub-test-15.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -858,9 +889,12 @@ xdescribe 'Subscriptions', ->
                       expect(err).toBeNull()
                       expect(user1.get('stripe').subscriptionID).toBeDefined()
                       expect(user1.isPremium()).toEqual(true)
-                      verifySponsorship user1.id, user2.id, done
+                      verifySponsorship user1.id, user2.id, ->
+                        nockDone()
+                        done()
 
-      it 'Clean up sponsorships upon sub cancel after setup sponsor sub fails', (done) ->
+    it 'Clean up sponsorships upon sub cancel after setup sponsor sub fails', (done) ->
+      nockUtils.setupNock 'sub-test-16.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -889,10 +923,13 @@ xdescribe 'Subscriptions', ->
                               expect(user1.isPremium()).toEqual(true)
                               User.findById user2.id, (err, user2) ->
                                 verifyNotSponsoring user1.id, user2.id, ->
-                                  verifyNotRecipient user2.id, done
+                                  verifyNotRecipient user2.id, ->
+                                    nockDone()
+                                    done()
 
 
-      it 'Unsubscribed user1 unsubscribes user2 and their sub ends', (done) ->
+    it 'Unsubscribed user1 unsubscribes user2 and their sub ends', (done) ->
+      nockUtils.setupNock 'sub-test-17.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -902,9 +939,13 @@ xdescribe 'Subscriptions', ->
                 User.findById user1.id, (err, user1) ->
                   unsubscribeRecipient user1, user2, ->
                     verifyNotSponsoring user1.id, user2.id, ->
-                      verifyNotRecipient user2.id, done
+                      verifyNotRecipient user2.id, ->
+                        nockDone()
+                        done()
+                      
 
-      it 'Unsubscribed user1 immediately resubscribes user2, one token', (done) ->
+    it 'Unsubscribed user1 immediately resubscribes user2, one token', (done) ->
+      nockUtils.setupNock 'sub-test-18.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -914,9 +955,12 @@ xdescribe 'Subscriptions', ->
                 User.findById user1.id, (err, user1) ->
                   unsubscribeRecipient user1, user2, ->
                     subscribeRecipients user1, [user2], null, (updatedUser) ->
-                      verifySponsorship user1.id, user2.id, done
+                      verifySponsorship user1.id, user2.id, ->
+                        nockDone()
+                        done()
 
-      it 'Sponsored user2 subscribes their sponsor user1', (done) ->
+    it 'Sponsored user2 subscribes their sponsor user1', (done) ->
+      nockUtils.setupNock 'sub-test-19.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -929,9 +973,12 @@ xdescribe 'Subscriptions', ->
                   }, (err, token) ->
                     subscribeRecipients user2, [user1], token, (updatedUser) ->
                       verifySponsorship user1.id, user2.id, ->
-                        verifySponsorship user2.id, user1.id, done
+                        verifySponsorship user2.id, user1.id, ->
+                          nockDone()
+                          done()
 
-      it 'Unsubscribed user1 subscribes user1', (done) ->
+    it 'Unsubscribed user1 subscribes user1', (done) ->
+      nockUtils.setupNock 'sub-test-20.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -952,9 +999,11 @@ xdescribe 'Subscriptions', ->
                 expect(stripeInfo.planID).toBeUndefined()
                 expect(stripeInfo.subscriptionID).toBeUndefined()
                 expect(stripeInfo.recipients.length).toEqual(0)
+                nockDone()
                 done()
 
-      it 'Subscribed user1 unsubscribes user2', (done) ->
+    it 'Subscribed user1 unsubscribes user2', (done) ->
+      nockUtils.setupNock 'sub-test-21.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -972,9 +1021,12 @@ xdescribe 'Subscriptions', ->
                           expect(user1.isPremium()).toEqual(true)
                           User.findById user2.id, (err, user2) ->
                             verifyNotSponsoring user1.id, user2.id, ->
-                              verifyNotRecipient user2.id, done
+                              verifyNotRecipient user2.id, ->
+                                nockDone()
+                                done()
 
-      it 'Subscribed user1 subscribes user2, unsubscribes themselves', (done) ->
+    it 'Subscribed user1 subscribes user2, unsubscribes themselves', (done) ->
+      nockUtils.setupNock 'sub-test-22.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -986,9 +1038,12 @@ xdescribe 'Subscriptions', ->
                   subscribeRecipients user1, [user2], null, (updatedUser) ->
                     User.findById user1.id, (err, user1) ->
                       unsubscribeUser user1, ->
-                        verifySponsorship user1.id, user2.id, done
+                        verifySponsorship user1.id, user2.id, ->
+                          nockDone()
+                          done()
 
-      it 'Sponsored user2 tries to subscribe', (done) ->
+    it 'Sponsored user2 tries to subscribe', (done) ->
+      nockUtils.setupNock 'sub-test-23.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -1006,9 +1061,11 @@ xdescribe 'Subscriptions', ->
                     request.put {uri: userURL, json: requestBody, headers: headers }, (err, res, body) ->
                       expect(err).toBeNull()
                       expect(res.statusCode).toBe(403)
+                      nockDone()
                       done()
 
-      it 'Sponsored user2 tries to subscribe with valid prepaid', (done) ->
+    it 'Sponsored user2 tries to subscribe with valid prepaid', (done) ->
+      nockUtils.setupNock 'sub-test-24.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -1029,9 +1086,11 @@ xdescribe 'Subscriptions', ->
                       request.put {uri: userURL, json: requestBody, headers: headers }, (err, res, body) ->
                         expect(err).toBeNull()
                         expect(res.statusCode).toBe(403)
+                        nockDone()
                         done()
 
-      it 'Sponsored user2 tries to unsubscribe', (done) ->
+    it 'Sponsored user2 tries to unsubscribe', (done) ->
+      nockUtils.setupNock 'sub-test-25.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -1045,9 +1104,12 @@ xdescribe 'Subscriptions', ->
                   request.put {uri: userURL, json: requestBody, headers: headers }, (err, res, body) ->
                     expect(err).toBeNull()
                     expect(res.statusCode).toBe(200)
-                    verifySponsorship user1.id, user2.id, done
+                    verifySponsorship user1.id, user2.id, ->
+                      nockDone()
+                      done()
 
-      it 'Cancel sponsor subscription with 2 recipient subscriptions, then subscribe 1 old and 1 new', (done) ->
+    it 'Cancel sponsor subscription with 2 recipient subscriptions, then subscribe 1 old and 1 new', (done) ->
+      nockUtils.setupNock 'sub-test-26.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -1100,9 +1162,12 @@ xdescribe 'Subscriptions', ->
                                     loginUser user1, (user1) ->
                                       User.findById user1.id, (err, user1) ->
                                         subscribeRecipients user1, [user4], null, (updatedUser) ->
-                                          verifySponsorship user1.id, user4.id, done
+                                          verifySponsorship user1.id, user4.id, ->
+                                            nockDone()
+                                            done()
 
-      it 'Subscribing two users separately yields proration payment', (done) ->
+    it 'Subscribing two users separately yields proration payment', (done) ->
+      nockUtils.setupNock 'sub-test-27.json', (err, nockDone) ->
         # TODO: Use test plan with low duration + setTimeout to test delay between 2 subscribes
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
@@ -1128,14 +1193,17 @@ xdescribe 'Subscriptions', ->
                             Payment.findOne "stripe.invoiceID": invoice.id, (err, payment) ->
                               expect(err).toBeNull()
                               expect(payment.get('amount')).toEqual(invoice.total)
+                              nockDone()
                               done()
                             foundProratedInvoice = true
                             break
                         unless foundProratedInvoice
                           expect(foundProratedInvoice).toEqual(true)
+                          nockDone()
                           done()
 
-      it 'Invalid subscribeEmails', (done) ->
+    it 'Invalid subscribeEmails', (done) ->
+      nockUtils.setupNock 'sub-test-28.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -1154,9 +1222,11 @@ xdescribe 'Subscriptions', ->
                 expect(sponsor.get('stripe').customerID).toBeDefined()
                 expect(sponsor.get('stripe').sponsorSubscriptionID).toBeDefined()
                 expect(sponsor.get('stripe').recipients?.length).toEqual(0)
+                nockDone()
                 done()
 
-      it 'User1 subscribes user2 then themselves', (done) ->
+    it 'User1 subscribes user2 then themselves', (done) ->
+      nockUtils.setupNock 'sub-test-29.json', (err, nockDone) ->
         stripe.tokens.create {
           card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
         }, (err, token) ->
@@ -1188,9 +1258,11 @@ xdescribe 'Subscriptions', ->
                               else
                                 expect(sub.plan.id).toEqual('incremental')
                                 expect(sub.metadata?.id).toEqual(user1.id)
+                            nockDone()
                             done()
 
-      it 'Subscribe with prepaid, then get sponsored', (done) ->
+    it 'Subscribe with prepaid, then get sponsored', (done) ->
+      nockUtils.setupNock 'sub-test-30.json', (err, nockDone) ->
         loginNewUser (user1) ->
           user1.set('permissions', ['admin'])
           user1.save (err, user1) ->
@@ -1217,16 +1289,18 @@ xdescribe 'Subscriptions', ->
                         expect(stripeInfo.planID).toBeDefined()
                         expect(stripeInfo.subscriptionID).toBeDefined()
                         expect(stripeInfo.sponsorID).toBeUndefined()
+                        nockDone()
                         done()
 
 
-      describe 'Bulk discounts', ->
-        # Bulk discount algorithm (includes personal sub):
-        # 1 100%
-        # 2-11 80%
-        # 12+ 60%
+    describe 'Bulk discounts', ->
+      # Bulk discount algorithm (includes personal sub):
+      # 1 100%
+      # 2-11 80%
+      # 12+ 60%
 
-        it 'Unsubscribed user1 subscribes two users', (done) ->
+      it 'Unsubscribed user1 subscribes two users', (done) ->
+        nockUtils.setupNock 'sub-test-31.json', (err, nockDone) ->
           stripe.tokens.create {
             card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
           }, (err, token) ->
@@ -1235,31 +1309,34 @@ xdescribe 'Subscriptions', ->
                 loginNewUser (user1) ->
                   subscribeRecipients user1, [user2, user3], token, (updatedUser) ->
                     verifySponsorship user1.id, user2.id, ->
-                      verifySponsorship user1.id, user3.id, done
+                      verifySponsorship user1.id, user3.id, ->
+                        nockDone()
+                        done()
 
-        it 'Subscribed user1 subscribes 2 users, unsubscribes 2', (done) ->
+      it 'Subscribed user1 subscribes 2 users, unsubscribes 2', (done) ->
+        nockUtils.setupNock 'sub-test-32.json', (err, nockDone) ->
           recipientCount = 2
           recipientsToVerify = [0, 1]
           recipients = new SubbedRecipients recipientCount, recipientsToVerify
-
+  
           # Create recipients
           recipients.createRecipients ->
             expect(recipients.length()).toEqual(recipientCount)
-
+  
             stripe.tokens.create {
               card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
             }, (err, token) ->
-
+  
               # Create sponsor user
               loginNewUser (user1) ->
                 subscribeUser user1, token, null, (updatedUser) ->
                   User.findById user1.id, (err, user1) ->
                     expect(err).toBeNull()
-
+  
                     # Subscribe recipients
                     recipients.subRecipients user1, null, ->
                       User.findById user1.id, (err, user1) ->
-
+  
                         # Unsubscribe recipient0
                         unsubscribeRecipient user1, recipients.get(0), ->
                           User.findById user1.id, (err, user1) ->
@@ -1271,7 +1348,7 @@ xdescribe 'Subscriptions', ->
                                   expect(err).toBeNull()
                                   expect(subscription).not.toBeNull()
                                   expect(subscription?.quantity).toEqual(getSubscribedQuantity(1))
-
+  
                                   # Unsubscribe recipient1
                                   unsubscribeRecipient user1, recipients.get(1), ->
                                     User.findById user1.id, (err, user1) ->
@@ -1284,9 +1361,11 @@ xdescribe 'Subscriptions', ->
                                             expect(subscription).not.toBeNull()
                                             return done() unless subscription
                                             expect(subscription.quantity).toEqual(0)
+                                            nockDone()
                                             done()
 
-        it 'Subscribed user1 subscribes 3 users, unsubscribes 2, themselves, then 1', (done) ->
+      it 'Subscribed user1 subscribes 3 users, unsubscribes 2, themselves, then 1', (done) ->
+        nockUtils.setupNock 'sub-test-33.json', (err, nockDone) ->
           recipientCount = 3
           recipientsToVerify = [0, 1, 2]
           recipients = new SubbedRecipients recipientCount, recipientsToVerify
@@ -1354,9 +1433,11 @@ xdescribe 'Subscriptions', ->
                                                               expect(err).toBeNull()
                                                               expect(subscription).not.toBeNull()
                                                               expect(subscription?.quantity).toEqual(getSubscribedQuantity(recipientCount - 3))
+                                                              nockDone()
                                                               done()
 
-        xit 'Unsubscribed user1 subscribes 13 users, unsubcribes 2', (done) ->
+      it 'Unsubscribed user1 subscribes 13 users, unsubcribes 2', (done) ->
+        nockUtils.setupNock 'sub-test-34.json', (err, nockDone) ->
           # TODO: Hits the Stripe error 'Request rate limit exceeded'.
           # TODO: Need a better test for 12+ bulk discounts. Or, we could update the bulk disount logic.
           # TODO: verify interim invoices?
@@ -1409,193 +1490,206 @@ xdescribe 'Subscriptions', ->
                                           expect(subscription.quantity).toEqual(subPrice + (numSponsored - 1) * subPrice * 0.8)
                                         else
                                           expect(subscription.quantity).toEqual(subPrice + 10 * subPrice * 0.8 + (numSponsored - 11) * subPrice * 0.6)
+                                        nockDone()
                                         done()
 
   describe 'APIs', ->
     subscriptionURL = getURL('/db/subscription')
 
     it 'year_sale', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          expect(user1.get('stripe')?.free).toBeUndefined()
-          requestBody =
-            stripe:
-              token: token.id
-              timestamp: new Date()
-          request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
-            expect(err).toBeNull()
-            expect(res.statusCode).toBe(200)
-            User.findById user1.id, (err, user1) ->
+      nockUtils.setupNock 'sub-test-35.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            expect(user1.get('stripe')?.free).toBeUndefined()
+            requestBody =
+              stripe:
+                token: token.id
+                timestamp: new Date()
+            request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
               expect(err).toBeNull()
-              stripeInfo = user1.get('stripe')
-              expect(stripeInfo).toBeDefined()
-              return done() unless stripeInfo
-              endDate = new Date()
-              endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
-              expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
-              expect(stripeInfo.customerID).toBeDefined()
-              expect(user1.get('purchased')?.gems).toEqual(3500*12)
-              Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+              expect(res.statusCode).toBe(200)
+              User.findById user1.id, (err, user1) ->
                 expect(err).toBeNull()
-                expect(payment).toBeDefined()
-                expect(payment.get('gems')).toEqual(3500*12)
-                done()
+                stripeInfo = user1.get('stripe')
+                expect(stripeInfo).toBeDefined()
+                return done() unless stripeInfo
+                endDate = new Date()
+                endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
+                expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
+                expect(stripeInfo.customerID).toBeDefined()
+                expect(user1.get('purchased')?.gems).toEqual(3500*12)
+                Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                  expect(err).toBeNull()
+                  expect(payment).toBeDefined()
+                  expect(payment.get('gems')).toEqual(3500*12)
+                  nockDone()
+                  done()
 
     it 'year_sale when stripe.free === true', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          user1.set('stripe', {free: true})
-          user1.save (err, user1) ->
-            expect(err).toBeNull()
-            expect(user1.get('stripe')?.free).toEqual(true)
-            requestBody =
-              stripe:
-                token: token.id
-                timestamp: new Date()
-            request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
+      nockUtils.setupNock 'sub-test-36.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            user1.set('stripe', {free: true})
+            user1.save (err, user1) ->
               expect(err).toBeNull()
-              expect(res.statusCode).toBe(200)
-              User.findById user1.id, (err, user1) ->
+              expect(user1.get('stripe')?.free).toEqual(true)
+              requestBody =
+                stripe:
+                  token: token.id
+                  timestamp: new Date()
+              request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
                 expect(err).toBeNull()
-                stripeInfo = user1.get('stripe')
-                expect(stripeInfo).toBeDefined()
-                return done() unless stripeInfo
-                endDate = new Date()
-                endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
-                expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
-                expect(stripeInfo.customerID).toBeDefined()
-                expect(user1.get('purchased')?.gems).toEqual(3500*12)
-                Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                expect(res.statusCode).toBe(200)
+                User.findById user1.id, (err, user1) ->
                   expect(err).toBeNull()
-                  expect(payment).toBeDefined()
-                  expect(payment.get('gems')).toEqual(3500*12)
-                  done()
+                  stripeInfo = user1.get('stripe')
+                  expect(stripeInfo).toBeDefined()
+                  return done() unless stripeInfo
+                  endDate = new Date()
+                  endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
+                  expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
+                  expect(stripeInfo.customerID).toBeDefined()
+                  expect(user1.get('purchased')?.gems).toEqual(3500*12)
+                  Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                    expect(err).toBeNull()
+                    expect(payment).toBeDefined()
+                    expect(payment.get('gems')).toEqual(3500*12)
+                    nockDone()
+                    done()
 
     it 'year_sale when stripe.free < today', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          endDate = new Date()
-          endDate.setUTCFullYear(endDate.getUTCFullYear() - 1)
-          user1.set('stripe', {free: endDate.toISOString().substring(0, 10)})
-          user1.save (err, user1) ->
-            expect(err).toBeNull()
-            expect(user1.get('stripe')?.free).toEqual(endDate.toISOString().substring(0, 10))
-            requestBody =
-              stripe:
-                token: token.id
-                timestamp: new Date()
-            request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
+      nockUtils.setupNock 'sub-test-37.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            endDate = new Date()
+            endDate.setUTCFullYear(endDate.getUTCFullYear() - 1)
+            user1.set('stripe', {free: endDate.toISOString().substring(0, 10)})
+            user1.save (err, user1) ->
               expect(err).toBeNull()
-              expect(res.statusCode).toBe(200)
-              User.findById user1.id, (err, user1) ->
+              expect(user1.get('stripe')?.free).toEqual(endDate.toISOString().substring(0, 10))
+              requestBody =
+                stripe:
+                  token: token.id
+                  timestamp: new Date()
+              request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
                 expect(err).toBeNull()
-                stripeInfo = user1.get('stripe')
-                expect(stripeInfo).toBeDefined()
-                return done() unless stripeInfo
-                endDate = new Date()
-                endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
-                expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
-                expect(stripeInfo.customerID).toBeDefined()
-                expect(user1.get('purchased')?.gems).toEqual(3500*12)
-                Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                expect(res.statusCode).toBe(200)
+                User.findById user1.id, (err, user1) ->
                   expect(err).toBeNull()
-                  expect(payment).toBeDefined()
-                  expect(payment.get('gems')).toEqual(3500*12)
-                  done()
+                  stripeInfo = user1.get('stripe')
+                  expect(stripeInfo).toBeDefined()
+                  return done() unless stripeInfo
+                  endDate = new Date()
+                  endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
+                  expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
+                  expect(stripeInfo.customerID).toBeDefined()
+                  expect(user1.get('purchased')?.gems).toEqual(3500*12)
+                  Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                    expect(err).toBeNull()
+                    expect(payment).toBeDefined()
+                    expect(payment.get('gems')).toEqual(3500*12)
+                    nockDone()
+                    done()
 
     it 'year_sale when stripe.free > today', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          endDate = new Date()
-          endDate.setUTCDate(endDate.getUTCDate() + 5)
-          user1.set('stripe', {free: endDate.toISOString().substring(0, 10)})
-          user1.save (err, user1) ->
-            expect(err).toBeNull()
-            expect(user1.get('stripe')?.free).toEqual(endDate.toISOString().substring(0, 10))
-            requestBody =
-              stripe:
-                token: token.id
-                timestamp: new Date()
-            request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
+      nockUtils.setupNock 'sub-test-38.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            endDate = new Date()
+            endDate.setUTCDate(endDate.getUTCDate() + 5)
+            user1.set('stripe', {free: endDate.toISOString().substring(0, 10)})
+            user1.save (err, user1) ->
               expect(err).toBeNull()
-              expect(res.statusCode).toBe(200)
+              expect(user1.get('stripe')?.free).toEqual(endDate.toISOString().substring(0, 10))
+              requestBody =
+                stripe:
+                  token: token.id
+                  timestamp: new Date()
+              request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
+                expect(err).toBeNull()
+                expect(res.statusCode).toBe(200)
+                User.findById user1.id, (err, user1) ->
+                  expect(err).toBeNull()
+                  stripeInfo = user1.get('stripe')
+                  expect(stripeInfo).toBeDefined()
+                  return done() unless stripeInfo
+                  endDate = new Date()
+                  endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
+                  endDate.setUTCDate(endDate.getUTCDate() + 5)
+                  expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
+                  expect(stripeInfo.customerID).toBeDefined()
+                  expect(user1.get('purchased')?.gems).toEqual(3500*12)
+                  Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                    expect(err).toBeNull()
+                    expect(payment).toBeDefined()
+                    expect(payment.get('gems')).toEqual(3500*12)
+                    nockDone()
+                    done()
+
+    it 'year_sale with monthly sub', (done) ->
+      nockUtils.setupNock 'sub-test-39.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            subscribeUser user1, token, null, ->
               User.findById user1.id, (err, user1) ->
                 expect(err).toBeNull()
                 stripeInfo = user1.get('stripe')
-                expect(stripeInfo).toBeDefined()
-                return done() unless stripeInfo
-                endDate = new Date()
-                endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
-                endDate.setUTCDate(endDate.getUTCDate() + 5)
-                expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
-                expect(stripeInfo.customerID).toBeDefined()
-                expect(user1.get('purchased')?.gems).toEqual(3500*12)
-                Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                stripe.customers.retrieveSubscription stripeInfo.customerID, stripeInfo.subscriptionID, (err, subscription) ->
                   expect(err).toBeNull()
-                  expect(payment).toBeDefined()
-                  expect(payment.get('gems')).toEqual(3500*12)
-                  done()
-
-    it 'year_sale with monthly sub', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          subscribeUser user1, token, null, ->
-            User.findById user1.id, (err, user1) ->
-              expect(err).toBeNull()
-              stripeInfo = user1.get('stripe')
-              stripe.customers.retrieveSubscription stripeInfo.customerID, stripeInfo.subscriptionID, (err, subscription) ->
-                expect(err).toBeNull()
-                expect(subscription).not.toBeNull()
-                stripeSubscriptionPeriodEndDate = new Date(subscription.current_period_end * 1000)
-                stripe.tokens.create {
-                  card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-                }, (err, token) ->
-                  requestBody =
-                    stripe:
-                      token: token.id
-                      timestamp: new Date()
-                  request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
-                    expect(err).toBeNull()
-                    expect(res.statusCode).toBe(200)
-                    User.findById user1.id, (err, user1) ->
+                  expect(subscription).not.toBeNull()
+                  stripeSubscriptionPeriodEndDate = new Date(subscription.current_period_end * 1000)
+                  stripe.tokens.create {
+                    card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+                  }, (err, token) ->
+                    requestBody =
+                      stripe:
+                        token: token.id
+                        timestamp: new Date()
+                    request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
                       expect(err).toBeNull()
-                      stripeInfo = user1.get('stripe')
-                      expect(stripeInfo).toBeDefined()
-                      return done() unless stripeInfo
-                      endDate = stripeSubscriptionPeriodEndDate
-                      endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
-                      expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
-                      expect(stripeInfo.customerID).toBeDefined()
-                      expect(user1.get('purchased')?.gems).toEqual(3500+3500*12)
-                      Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                      expect(res.statusCode).toBe(200)
+                      User.findById user1.id, (err, user1) ->
                         expect(err).toBeNull()
-                        expect(payment).toBeDefined()
-                        expect(payment.get('gems')).toEqual(3500*12)
-                        done()
+                        stripeInfo = user1.get('stripe')
+                        expect(stripeInfo).toBeDefined()
+                        return done() unless stripeInfo
+                        endDate = stripeSubscriptionPeriodEndDate
+                        endDate.setUTCFullYear(endDate.getUTCFullYear() + 1)
+                        expect(stripeInfo.free).toEqual(endDate.toISOString().substring(0, 10))
+                        expect(stripeInfo.customerID).toBeDefined()
+                        expect(user1.get('purchased')?.gems).toEqual(3500+3500*12)
+                        Payment.findOne 'stripe.customerID': stripeInfo.customerID, (err, payment) ->
+                          expect(err).toBeNull()
+                          expect(payment).toBeDefined()
+                          expect(payment.get('gems')).toEqual(3500*12)
+                          nockDone()
+                          done()
 
     it 'year_sale with sponsored sub', (done) ->
-      stripe.tokens.create {
-        card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
-      }, (err, token) ->
-        loginNewUser (user1) ->
-          user1.set('stripe', {sponsorID: 'dummyID'})
-          user1.save (err, user1) ->
-            expect(err).toBeNull()
-            requestBody =
-              stripe:
-                token: token.id
-                timestamp: new Date()
-            request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
-              console.log err
+      nockUtils.setupNock 'sub-test-40.json', (err, nockDone) ->
+        stripe.tokens.create {
+          card: { number: '4242424242424242', exp_month: 12, exp_year: 2020, cvc: '123' }
+        }, (err, token) ->
+          loginNewUser (user1) ->
+            user1.set('stripe', {sponsorID: 'dummyID'})
+            user1.save (err, user1) ->
               expect(err).toBeNull()
-              done()
+              requestBody =
+                stripe:
+                  token: token.id
+                  timestamp: new Date()
+              request.put {uri: "#{subscriptionURL}/-/year_sale", json: requestBody, headers: headers }, (err, res) ->
+                console.log err
+                expect(err).toBeNull()
+                nockDone()
+                done()

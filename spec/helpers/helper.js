@@ -36,7 +36,7 @@ if (database.generateMongoConnectionString() !== dbString) {
   throw Error('Stopping server tests because db connection string was not as expected.');
 }
 
-jasmine.DEFAULT_TIMEOUT_INTERVAL = 1000 * 30; // for long Stripe tests
+jasmine.DEFAULT_TIMEOUT_INTERVAL = 1000 * 120; // for long Stripe tests
 
 describe('Server Test Helper', function() {
   it('starts the test server', function(done) {
