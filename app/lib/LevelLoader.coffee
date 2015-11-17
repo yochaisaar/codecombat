@@ -34,6 +34,7 @@ module.exports = class LevelLoader extends CocoClass
     @sessionless = options.sessionless
     @spectateMode = options.spectateMode ? false
     @observing = options.observing
+    @courseID = options.courseID
 
     @worldNecessities = []
     @listenTo @supermodel, 'resource-loaded', @onWorldNecessityLoaded
@@ -56,6 +57,12 @@ module.exports = class LevelLoader extends CocoClass
       @listenToOnce @level, 'sync', @onLevelLoaded
 
   onLevelLoaded: ->
+    if @courseID and @level.get('type', true) not in ['course', 'course-ladder']
+      # Because we now use original hero levels for both hero and course levels, we fake being a course level in this context.
+      originalGet = @level.get
+      @level.get = ->
+        return 'course' if arguments[0] is 'type'
+        originalGet.apply @, arguments
     @loadSession() unless @sessionless
     @populateLevel()
 
@@ -70,6 +77,7 @@ module.exports = class LevelLoader extends CocoClass
     else
       url = "/db/level/#{@levelID}/session"
       url += "?team=#{@team}" if @team
+      url += "?course=#{@courseID}" if @courseID
 
     session = new LevelSession().setURL url
     session.project = ['creator', 'team', 'heroConfig', 'codeLanguage', 'submittedCodeLanguage', 'state'] if @headless

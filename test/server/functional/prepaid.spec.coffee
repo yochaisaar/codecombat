@@ -50,8 +50,9 @@ describe '/db/prepaid', ->
             url = getURL("/db/prepaid/#{prepaid.id}/redeemers")
             redeemer = { userID: otherUser.id }
             request.post {uri: url, json: redeemer }, (err, res, body) ->
-              expect(body.redeemers.length).toBe(1)
+              expect(body.redeemers?.length).toBe(1)
               expect(res.statusCode).toBe(200)
+              return done() unless res.statusCode is 200
               prepaid = Prepaid.findById body._id, (err, prepaid) ->
                 expect(err).toBeNull()
                 expect(prepaid.get('redeemers').length).toBe(1)
@@ -114,6 +115,7 @@ describe '/db/prepaid', ->
               redeemer = { userID: otherUser.id }
               request.post {uri: url, json: redeemer }, (err, res, body) ->
                 expect(res.statusCode).toBe(200)
+                return done() unless res.statusCode is 200
                 expect(body.redeemers.length).toBe(0)
                 done()
 
