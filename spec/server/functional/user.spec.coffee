@@ -4,9 +4,8 @@ User = require '../../../server/users/User'
 
 urlUser = '/db/user'
 
-# TODO: Re-enable user tests
 
-xdescribe 'Server user object', ->
+describe 'Server user object', ->
 
   it 'uses the schema defaults to fill in email preferences', (done) ->
     user = new User()
@@ -30,11 +29,9 @@ xdescribe 'Server user object', ->
     expect(JSON.stringify(user.get('emailSubscriptions'))).toBe(JSON.stringify(['tester', 'level_creator']))
     done()
 
-xdescribe 'User.updateServiceSettings', ->
+describe 'User.updateServiceSettings', ->
   makeMC = (callback) ->
-    GLOBAL.mc =
-      lists:
-        subscribe: callback
+    spyOn(mc.lists, 'subscribe').and.callFake callback
 
   it 'uses emails to determine what to send to MailChimp', (done) ->
     makeMC (params) ->
@@ -44,7 +41,7 @@ xdescribe 'User.updateServiceSettings', ->
     user = new User({emailSubscriptions: ['announcement'], email: 'tester@gmail.com'})
     User.updateServiceSettings(user)
 
-xdescribe 'POST /db/user', ->
+describe 'POST /db/user', ->
 
   createAnonNameUser = (name, done)->
     request.post getURL('/auth/logout'), ->
@@ -77,14 +74,15 @@ xdescribe 'POST /db/user', ->
 
   it 'serves the user through /db/user/id', (done) ->
     unittest.getNormalJoe (user) ->
-      url = getURL(urlUser+'/'+user._id)
-      request.get url, (err, res, body) ->
-        expect(res.statusCode).toBe(200)
-        user = JSON.parse(body)
-        expect(user.name).toBe('Joe')  # Anyone should be served the username.
-        expect(user.email).toBeUndefined()  # Shouldn't be available to just anyone.
-        expect(user.passwordHash).toBeUndefined()
-        done()
+      request.post getURL('/auth/logout'), ->
+        url = getURL(urlUser+'/'+user._id)
+        request.get url, (err, res, body) ->
+          expect(res.statusCode).toBe(200)
+          user = JSON.parse(body)
+          expect(user.name).toBe('Joe')  # Anyone should be served the username.
+          expect(user.email).toBeUndefined()  # Shouldn't be available to just anyone.
+          expect(user.passwordHash).toBeUndefined()
+          done()
 
   it 'creates admins based on passwords', (done) ->
     request.post getURL('/auth/logout'), ->
@@ -125,7 +123,7 @@ xdescribe 'POST /db/user', ->
     form.append('email', 'new@user.com')
     form.append('password', 'new')
 
-xdescribe 'PUT /db/user', ->
+describe 'PUT /db/user', ->
 
   it 'logs in as normal joe', (done) ->
     request.post getURL('/auth/logout'),
@@ -253,7 +251,7 @@ ghlfarghlarghlfarghlarghlfarghlarghlfarghlarghlfarghlarghlfarghlarghlfarghlarghl
           expect(err).toBeNull()
           done()
 
-xdescribe 'GET /db/user', ->
+describe 'GET /db/user', ->
 
   it 'logs in as admin', (done) ->
     req = request.post(getURL('/auth/login'), (error, response) ->
@@ -314,7 +312,7 @@ xdescribe 'GET /db/user', ->
 
   xit 'can fetch another user with restricted fields'
 
-xdescribe 'DELETE /db/user', ->
+describe 'DELETE /db/user', ->
   it 'can delete a user', (done) ->
     loginNewUser (user1) ->
       beforeDeleted = new Date()
@@ -332,7 +330,7 @@ xdescribe 'DELETE /db/user', ->
             expect(_.isEmpty(value)).toEqual(true)
           done()
 
-xdescribe 'Statistics', ->
+describe 'Statistics', ->
   LevelSession = require '../../../server/levels/sessions/LevelSession'
   Article = require '../../../server/articles/Article'
   Level = require '../../../server/levels/Level'
@@ -355,12 +353,14 @@ xdescribe 'Statistics', ->
       session.save (err) ->
         expect(err).toBeNull()
 
-        User.findById joe.get('id'), (err, guy) ->
-          expect(err).toBeNull()
-          expect(guy.get 'id').toBe joe.get 'id'
-          expect(guy.get 'stats.gamesCompleted').toBe 1
-
-          done()
+        f = ->
+          User.findById joe.get('id'), (err, guy) ->
+            expect(err).toBeNull()
+            expect(guy.get 'id').toBe joe.get 'id'
+            expect(guy.get 'stats.gamesCompleted').toBe 1
+            done()
+            
+        setTimeout f, 100
 
   it 'recalculates games completed', (done) ->
     unittest.getNormalJoe (joe) ->
