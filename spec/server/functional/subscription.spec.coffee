@@ -1436,7 +1436,7 @@ describe 'Subscriptions', ->
                                                               nockDone()
                                                               done()
 
-      it 'Unsubscribed user1 subscribes 13 users, unsubcribes 2', (done) ->
+      xit 'Unsubscribed user1 subscribes 13 users, unsubcribes 2', (done) ->
         nockUtils.setupNock 'sub-test-34.json', (err, nockDone) ->
           # TODO: Hits the Stripe error 'Request rate limit exceeded'.
           # TODO: Need a better test for 12+ bulk discounts. Or, we could update the bulk disount logic.
