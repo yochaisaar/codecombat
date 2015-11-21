@@ -217,7 +217,7 @@ module.exports = nativeDescription: "עברית", englishDescription: "Hebrew", 
 
   play_level:
     done: "סיים"
-#    next_game: "Next game"
+    next_game: "משחק הבא"
 #    show_menu: "Show game menu"
     home: "בית" # Not used any more, will be removed soon.
     level: "שלב" # Like "Level: Dungeons of Kithgard"
@@ -630,11 +630,11 @@ module.exports = nativeDescription: "עברית", englishDescription: "Hebrew", 
 #    monitor_progress_1: "Student progress can be monitored by creating a"
 #    monitor_progress_2: "for your class."
 #    monitor_progress_3: "To add a student, send them the invite link for your Clan, which is on the"
-#    monitor_progress_4: "page."
+    monitor_progress_4: "עמוד"
 #    monitor_progress_5: "After they join, you will see a summary of the student's progress on your Clan's page."
 #    private_clans_1: "Private Clans provide increased privacy and detailed progress information for each student."
 #    private_clans_2: "To create a private Clan, check the 'Make clan private' checkbox when creating a"
-#    private_clans_3: "."
+    private_clans_3: "."
 #    who_for_title: "Who is CodeCombat for?"
 #    who_for_1: "We recommend CodeCombat for students aged 9 and up. No prior programming experience is needed."
 #    who_for_2: "We've designed CodeCombat to appeal to both boys and girls."
@@ -678,8 +678,8 @@ module.exports = nativeDescription: "עברית", englishDescription: "Hebrew", 
 #    school: "Name of School"
 #    location: "Name of City"
 #    age_students: "How old are your students?"
-#    under: "Under"
-#    other: "Other:"
+    under: "מתחת"
+    other: "אחר:"
 #    amount_students: "How many students do you teach?"
 #    hear_about: "How did you hear about CodeCombat?"
 #    fill_fields: "Please fill out all fields."
